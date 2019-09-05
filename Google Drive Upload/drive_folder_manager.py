@@ -6,12 +6,11 @@ import googleapiclient.errors
 from sys import exit
 import ast
 from datetime import date
-import time
-import pprint
+
 
 def authenticate():
     """ 
-		Authenticate to Google API
+		Authenticate to Google API. Based on the settings.yaml file.
 	"""
     gauth = GoogleAuth()
     
@@ -206,7 +205,7 @@ class DryveFolder():
             file_permissions[file['title']] = file.GetPermissions()
             
         return file_permissions
-        
+
     def backup_content(self):
 
         today_date = date.today()
@@ -216,7 +215,6 @@ class DryveFolder():
         
         files = self.google_service.auth.service.files() #the below functionality is not available/not efficient directly with PyDrive wrapper as of 190826
         
-        
         for f in self.get_content(recursive=False):
             file = files.get(fileId=f['id'], 
                              fields='parents').execute()
@@ -225,6 +223,7 @@ class DryveFolder():
                                 addParents = backup_folder_id, 
                                 removeParents = prev_parents,
                                 fields='id, parents').execute()
+            
         
 
 
