@@ -15,79 +15,7 @@ def authenticate():
     gauth = GoogleAuth()
     
     return GoogleDrive(gauth)
-
-class Dyrectory():
-    """ Class that enables you to upload a complete directory structure to google drive """
-
-    def __init__(self, directory_path):
-        """Initialize Dyrectory"""
-        self.directory_path = directory_path
-
-    def create_google_drive_tree(self, google_drive_folder='', google_service=False, parent_dir_id='', folder_permissions=''):
-        
-        """Creates the same tree in google drive that is in the Dyrectory
-        object, with 'google_drive_folder' as the ROOT directory
-        (== Dyrectory obj)
-        Optionally adds existing Google Drive folder permissions, 
-        from folder_permissions which must be a dictionary with {file id: permissions} pairs, e.g given by DryveFolder.get_permissions()"""
-        
-        # google_drive_folder = name of the current directory
-        # google_service = Google API resource
-        # parent_dir_id = id of the parent dir on Google drive
-
-        # create the files_and_dirs list in the current directory
-        files_and_dirs = [files_and_dirs for files_and_dirs in listdir(self.directory_path)]            
-        print(files_and_dirs)
-        
-        # sorts the files and dirs so their alphabetical and files come first
-        files_and_dirs = uf.sort_files_and_dirs(self.directory_path, files_and_dirs)        
-        
-        # loop through files and directories, outputting if its a file or dir
-        # if its a dir and full_tree==true, make a recursive call by creating 
-        # new Directory instance then listing the contents of that as well
-        for fd in files_and_dirs:
-            abs_path = uf.abs_path_from_local_dir(self.directory_path, fd)
-            if uf.check_file_or_dir(abs_path) == "file":
-                # its a file
-                # need to copy the file to Google Drive
-                file_metadata = {"title": fd,
-                                "parents": [{"kind": "drive#fileLink", "id": parent_dir_id}]}
-                file = google_service.CreateFile(file_metadata)
-                file.Upload()
-            else:
-                # its a directory
-                # create the directory in google drive
-                file_metadata = {'title': fd,
-                                'mimeType': 'application/vnd.google-apps.folder',
-                                'parents': [{"kind": "drive#fileLink", "id": parent_dir_id}]}
-                file = google_service.CreateFile(file_metadata)
-                file.Upload()
-                
-                #transfer permissions from existing google drive folders
-                if isinstance(folder_permissions, dict):
-                    if file['title'] in list(folder_permissions.keys()):
-                        for perm in folder_permissions[file['title']]:
-                            user, role = perm['emailAddress'], perm['role']
-                            if role != 'owner':
-                                perm_type = 'user'
-                                new_permission = {
-                                        'value': user,
-                                        'type': perm_type,
-                                        'role': role
-                                        }
-                                file.InsertPermission(new_permission) ##WORKS!
-    
-                print(f'Folder: {file}')
-                
-                # create a new Directory obj with the current Directory
-                # which is a subdirectory of the current Directory
-                sub_dir = Dyrectory(abs_path)                
-                # Recursively build tree inside the subdirectory
-                sub_dir.create_google_drive_tree(
-                    fd, 
-                    google_service, 
-                    file['id'])
-
+###############################################################
 class DryveFolder():
     """ Class that makes it easier to handle google drive folders """
 
@@ -206,6 +134,19 @@ class DryveFolder():
             
         return file_permissions
 
+    def delete_permissions(self):
+
+        file_list_drive = self.google_service.ListFile(
+                {'q': f"'{self.get_folder_id()}' in parents and trashed=false"}
+            ).GetList()
+        
+        for file in file_list_drive:
+            permissions = file.GetPermissions()
+            for perm in permissions:
+                if perm['role'] != 'owner':
+                    print('Deleting', perm['id'])
+                    file.DeletePermission(perm['id'])
+            
     def backup_content(self):
 
         today_date = date.today()
@@ -223,7 +164,81 @@ class DryveFolder():
                                 addParents = backup_folder_id, 
                                 removeParents = prev_parents,
                                 fields='id, parents').execute()
-            
+###############################################################
+class Dyrectory():
+    """ Class that enables you to upload a complete directory structure to google drive """
+
+    def __init__(self, directory_path, DryveFolder_obj=None):
+        """Initialize Dyrectory"""
+        self.directory_path = directory_path
+        self.DryveFolder_obj = DryveFolder_obj
+
+    def create_google_drive_tree(self, google_drive_folder='', google_service=False, parent_dir_id='', file_permissions=''):
+        
+        """Creates the same tree in google drive that is in the Dyrectory
+        object, with 'google_drive_folder' as the ROOT directory
+        (== Dyrectory obj)
+        Optionally add existing folder permissions for backup, using DryveFolder object.get_permissions()"""
+        
+        # google_drive_folder = name of the current directory
+        # google_service = Google API resource
+        # parent_dir_id = id of the parent dir on Google drive
+
+        # create the files_and_dirs list in the current directory
+        files_and_dirs = [files_and_dirs for files_and_dirs in listdir(self.directory_path)]            
+        print(files_and_dirs)
+        
+        # sorts the files and dirs so their alphabetical and files come first
+        files_and_dirs = uf.sort_files_and_dirs(self.directory_path, files_and_dirs)        
+        
+        # loop through files and directories, outputting if its a file or dir
+        # if its a dir and full_tree==true, make a recursive call by creating 
+        # new Directory instance then listing the contents of that as well
+        for fd in files_and_dirs:
+            abs_path = uf.abs_path_from_local_dir(self.directory_path, fd)
+            if uf.check_file_or_dir(abs_path) == "file":
+                # its a file
+                # need to copy the file to Google Drive
+                file_metadata = {"title": fd,
+                                "parents": [{"kind": "drive#fileLink", "id": parent_dir_id}]}
+                file = google_service.CreateFile(file_metadata)
+                file.Upload()
+            else:
+                # its a directory
+                # create the directory in google drive
+                file_metadata = {'title': fd,
+                                'mimeType': 'application/vnd.google-apps.folder',
+                                'parents': [{"kind": "drive#fileLink", "id": parent_dir_id}]}
+                file = google_service.CreateFile(file_metadata)
+                file.Upload()
+                
+                #transfer permissions from existing google drive folders
+                if isinstance(file_permissions, dict):
+                    if file['title'] in list(file_permissions.keys()):
+                        for perm in file_permissions[file['title']]:
+                            user, role = perm['emailAddress'], perm['role']
+                            if role != 'owner':
+                                perm_type = 'user'
+                                new_permission = {
+                                        'value': user,
+                                        'type': perm_type,
+                                        'role': role
+                                        }
+                                file.InsertPermission(new_permission)
+    
+                print(f'Folder: {file}')
+                
+                # create a new Dyrectory obj with the current directory
+                # which is a subdirectory of the current directory
+                sub_dir = Dyrectory(abs_path)                
+                # Recursively build tree inside the subdirectory
+                sub_dir.create_google_drive_tree(
+                    fd, 
+                    google_service, 
+                    file['id'])
+
+
+        
         
 
 
