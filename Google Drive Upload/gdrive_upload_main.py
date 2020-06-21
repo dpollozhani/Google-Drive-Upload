@@ -1,10 +1,10 @@
 from drive_folder_manager import Dyrectory, DryveFolder
 from drive_folder_manager import authenticate as google_auth
 import utility_functions as uf
+from pathlib import Path
 
 # specify the start path
-start_path = input('Enter source path:')
-start_path = uf.abs_path_from_user_input(start_path)
+start_path = Path(input('Enter source path:'))
 print(f'START PATH: {start_path}')
 
 # specify Drive folder (in this verison, must be under root) and create a google drive service resource upon authentication
