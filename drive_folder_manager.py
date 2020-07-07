@@ -203,6 +203,7 @@ class Dyrectory():
                                 "parents": [{"kind": "drive#fileLink", "id": parent_dir_id}],
                                 'uploadType': 'media'}
                 file = google_service.CreateFile(file_metadata)
+                file.SetContentFile(abs_path)
                 file.Upload()
             else:
                 # its a directory
