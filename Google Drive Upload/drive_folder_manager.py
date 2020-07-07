@@ -6,6 +6,9 @@ import googleapiclient.errors
 from sys import exit
 import ast
 from datetime import date
+from collections.abc import Iterable
+
+today_date = date.today()
 
 
 def authenticate():
@@ -51,30 +54,28 @@ class DryveFolder():
             if file['title'] == self.folder_name:
                 file_id = file['id']
                 return file_id
-
-    def get_content(self, recursive=True, parent=None, calls=1):
+    
+    def get_content(self, parent_id=None):
         
         """ 
-            Iterate through content and returns a list with it. If a folder is found, it is recursively traversed, 
-            given that recursive==True, else only first level is returned.
+            Iterate through content and returns a list with it. If a folder is found, it is recursively traversed.
         """
         content = []
-    
-        if calls == 1:
-            parent = self.get_folder_id()
+
+        if parent_id == None:
+            parent_id = self.get_folder_id()
         
         file_list_drive = self.google_service.ListFile(
-                {'q': f"'{parent}' in parents and trashed=false"}
+                {'q': f"'{parent_id}' in parents and trashed=false"}
             ).GetList()
 
         for file in file_list_drive:
-            if recursive:
-                if file['mimeType'] == 'application/vnd.google-apps.folder': #if subfolder
-                    content.append({'id': file['id'], 'title': file['title'], 'list': self.get_content(parent=file['id'], calls=+1)})
-                else:
-                    content.append({'id': file['id'], 'title': file['title'], 'title1': file['alternateLink']})
+            if file['mimeType'] == 'application/vnd.google-apps.folder': #if subfolder
+                content.append({'id': file['id'], 'title': file['title'], 'list': self.get_content(parent_id=file['id'])})
             else:
-                content.append({'id': file['id'], 'title': file['title']})
+                content.append({'id': file['id'], 'title': file['title'], 'title1': file['alternateLink']})
+            # else:
+            #     content.append({'id': file['id'], 'title': file['title']})
 
         return content
 
@@ -83,13 +84,9 @@ class DryveFolder():
         """ 
             Check whether folder folder_name is empty
         """
-        file_list_drive = self.google_service.ListFile(
-                {'q': f"'{self.get_folder_id()}' in parents and trashed=false"}
-            ).GetList()
-        
-        content_list = [file['title'] for file in file_list_drive]
-
-        if len(content_list) == 0:
+        file_list_drive = self.get_content()
+       
+        if len(file_list_drive) == 0:
             return True
         return False
 
@@ -105,9 +102,7 @@ class DryveFolder():
             'parents': [{"kind": "drive#fileLink", "id": parent_id}]
         }
 
-        file_list_drive = self.google_service.ListFile(
-                {'q': f"'{parent_id}' in parents and trashed=false"}
-            ).GetList()
+        file_list_drive = self.get_content()
         
         for file in file_list_drive:
             if file['title'] == new_folder:
@@ -125,9 +120,7 @@ class DryveFolder():
         
         file_permissions={}
 
-        file_list_drive = self.google_service.ListFile(
-                {'q': f"'{self.get_folder_id()}' in parents and trashed=false"}
-            ).GetList()
+        file_list_drive = self.get_content()
         
         for file in file_list_drive:
             file_permissions[file['title']] = file.GetPermissions()
@@ -136,9 +129,7 @@ class DryveFolder():
 
     def delete_permissions(self):
 
-        file_list_drive = self.google_service.ListFile(
-                {'q': f"'{self.get_folder_id()}' in parents and trashed=false"}
-            ).GetList()
+        file_list_drive = self.get_content()
         
         for file in file_list_drive:
             permissions = file.GetPermissions()
@@ -149,14 +140,13 @@ class DryveFolder():
             
     def backup_content(self):
 
-        today_date = date.today()
         backup_folder_id = self.add_folder(f'{self.folder_name} backup {today_date}')
         
         print(f'Backing up to {self.folder_name} backup {today_date}...')
         
         files = self.google_service.auth.service.files() #the below functionality is not available/not efficient directly with PyDrive wrapper as of 190826
         
-        for f in self.get_content(recursive=False):
+        for f in self.get_content():
             file = files.get(fileId=f['id'], 
                              fields='parents').execute()
             prev_parents = ','.join(p['id'] for p in file.get('parents'))
@@ -164,6 +154,7 @@ class DryveFolder():
                                 addParents = backup_folder_id, 
                                 removeParents = prev_parents,
                                 fields='id, parents').execute()
+
 ###############################################################
 class Dyrectory():
     """ Class that enables you to upload a complete directory structure to google drive """
@@ -173,19 +164,24 @@ class Dyrectory():
         self.directory_path = directory_path
         self.DryveFolder_obj = DryveFolder_obj
 
-    def create_google_drive_tree(self, google_drive_folder='', google_service=False, parent_dir_id='', file_permissions=''):
+    def create_google_drive_tree(self, google_drive_folder='', google_service=False, parent_dir_id='', file_permissions='', ignore_prefix='._'):
         
         """Creates the same tree in google drive that is in the Dyrectory
         object, with 'google_drive_folder' as the ROOT directory
         (== Dyrectory obj)
-        Optionally add existing folder permissions for backup, using DryveFolder object.get_permissions()"""
+        Optionally add existing folder permissions for backup, using DryveFolder object.get_permissions()
+        Per default ignores files starting with '._', but can be extended to any character in iterable"""
         
         # google_drive_folder = name of the current directory
         # google_service = Google API resource
         # parent_dir_id = id of the parent dir on Google drive
 
+        # control whether ignore_prefix is iterable and if it contains anything, if not fall back to default
+        if not isinstance(ignore_prefix, Iterable) or len(ignore_prefix) == 0:
+                ignore_prefix = '._'
+
         # create the files_and_dirs list in the current directory
-        files_and_dirs = [files_and_dirs for files_and_dirs in listdir(self.directory_path)]            
+        files_and_dirs = [files_and_dirs for files_and_dirs in listdir(self.directory_path) if files_and_dirs[0] not in ignore_prefix]            
         print(files_and_dirs)
         
         # sorts the files and dirs so their alphabetical and files come first
